@@ -1,6 +1,4 @@
-﻿using System.Globalization;
-
-var data = "98722, 2022-03-16T15:50-06:00, PharmaA, 4, These are the last batches of PharmaA";
+﻿var data = "98722, 2022-03-16T15:50-06:00, PharmaA, 4, These are the last batches of PharmaA";
 var fuzz = new SimpleFuzz(data, 88);
 byte[]? fuzzedResult = fuzz.Fuzz(null) ;
 
@@ -8,9 +6,10 @@ if (fuzzedResult is not null) {
     string res = System.Text.Encoding.UTF8.GetString(fuzzedResult);
     Console.WriteLine(res);
 }
+
 public class SimpleFuzz
 {
-    public SimpleFuzz(byte[] input, int threshold=5) { 
+    public SimpleFuzz(byte[] input, int threshold=5) {
         _input = input;
         _threshold = threshold;
     }
@@ -20,20 +19,20 @@ public class SimpleFuzz
         _threshold = threshold;
     }
 
-    private byte[]? _input;
-    private int ? _threshold;
+    private readonly byte[]? _input;
+    private readonly int ? _threshold;
 
     public byte[] Fuzz(int? seed=null) {
         var rnd = seed is null ? new Random() : new Random((int)seed);
 
         if (_input is null) return null;
         if (rnd.Next(0, 100) > _threshold) return null;
-        
+
         var input = new Span<byte>(_input);
 
         var mutationCount = rnd.Next(1, 5);
         for (int i = 0; i < mutationCount; i++) {
-            var whichMutation = rnd.Next(0, 6);
+            var whichMutation = rnd.Next(0, 7);
 
             int lo = rnd.Next(0, input.Length);
             int range = rnd.Next(1, input.Length / 10);
@@ -62,11 +61,8 @@ public class SimpleFuzz
 
                 case 4: // swap bytes
                     for (int j = lo; j < lo + range; j++) {
-                        if (j + 1 < input.Length) {
-                            byte t = input[j];
-                            input[j] = input[j + 1];
-                            input[j + 1] = t;
-                        }
+                        if (j + 1 < input.Length)
+                            (input[j + 1], input[j]) = (input[j], input[j + 1]);
                     }
                     break;
 
@@ -77,13 +73,21 @@ public class SimpleFuzz
                         input = input[(lo + range)..];
                     break;
 
-                default:
+                case 6: // add interesting pathname/filename characters
+                    var fname = new string[] { "\\", "/", ":", ".."};
+
+                    int which = rnd.Next(fname.Length);
+                    for (int j = 0; j < fname[which].Length; j++)
+                        if (lo+j < input.Length)
+                            input[lo+j] = (byte)fname[which][j];
+           
                     break;
 
+                default:
+                    break;
             }
         }
 
         return input.ToArray();
     }
 }
-
