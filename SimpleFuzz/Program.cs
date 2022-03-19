@@ -1,6 +1,7 @@
 ﻿using System.Text.Json;
 
-var data = "98722, 2022-03-16T15:50-06:00, PharmaA, 4, These are the last batches of PharmaA";
+var fuzz = new SimpleFuzz(threshold: 33);
+
 var jsonData = @"{
     ""centerId"" : ""98722"",
     ""date_time"" : ""2022-03-16T15:50-06:00"",
@@ -11,9 +12,7 @@ var jsonData = @"{
 
 var doc = JsonDocument.Parse(jsonData);
 
-var fuzz = new SimpleFuzz(threshold: 7);
-
-for (int i = 0; i < 5; i++)
+for (int i = 0; i < 25; i++)
 {
     byte[] fuzzedJsonResult = fuzz.Fuzz(doc);
     if (fuzzedJsonResult.Length > 0)
@@ -25,13 +24,13 @@ for (int i = 0; i < 5; i++)
         Console.WriteLine("Not Fuzzed");
     }
 }
-/*
+
+var data = "98722, 2022-03-16T15:50-06:00, PharmaA, 4, These are the last batches of PharmaA";
 byte[] fuzzedResult = fuzz.Fuzz(data);
 if (fuzzedResult.Length > 0) {
     string res = System.Text.Encoding.UTF8.GetString(fuzzedResult);
     Console.WriteLine(res);
 }
-*/
 
 public class SimpleFuzz
 {
@@ -45,22 +44,17 @@ public class SimpleFuzz
 
     public byte[] Fuzz(JsonDocument doc)
     {
-        byte[] fuzzResult = new byte[]{ };
+        byte[] fuzzResult = Array.Empty<byte>();
         using var stream = new MemoryStream();
         using (var writer = new Utf8JsonWriter(stream)) {
             writer.WriteStartObject();
             foreach (var elem in doc.RootElement.EnumerateObject())
             {
                 writer.WritePropertyName(elem.Name);
-                string f = elem.Value.ToString();
-                byte[] fuzzed = Fuzz(f);
-                if (fuzzed.Length > 0)
-                {
-                    writer.WriteStringValue(System.Text.Encoding.UTF8.GetString(fuzzed));
-                } else
-                {
-                    writer.WriteStringValue(elem.Value.GetRawText().ToString().Trim('"'));
-                }
+                byte[] fuzzed = Fuzz(elem.Value.ToString());
+                writer.WriteStringValue(fuzzed.Length > 0
+                                        ? System.Text.Encoding.UTF8.GetString(fuzzed)
+                                        : elem.Value.GetRawText().Trim('"'));
             }
             writer.WriteEndObject();
             writer.Flush();
@@ -74,13 +68,10 @@ public class SimpleFuzz
     public byte[] Fuzz(string input) {
         return Fuzz(System.Text.Encoding.UTF8.GetBytes(input));
     }
-        
+
     public byte[] Fuzz(byte[] input) {
-
-        if (input.Length == 0) return new byte[] { };
-        if (_rnd.Next(0, 100) > _threshold) return new byte[] { };
-
-        var data = new Span<byte>(input);
+        if (input.Length == 0) return Array.Empty<byte>();
+        if (_rnd.Next(0, 100) > _threshold) return Array.Empty<byte>();
 
         var mutationCount = _rnd.Next(1, 5);
         for (int i = 0; i < mutationCount; i++) {
