@@ -1,41 +1,96 @@
-﻿var data = "98722, 2022-03-16T15:50-06:00, PharmaA, 4, These are the last batches of PharmaA";
-var fuzz = new SimpleFuzz(data, 88);
-byte[]? fuzzedResult = fuzz.Fuzz(null) ;
+﻿using System.Text.Json;
 
-if (fuzzedResult is not null) {
+var data = "98722, 2022-03-16T15:50-06:00, PharmaA, 4, These are the last batches of PharmaA";
+var jsonData = @"{
+    ""centerId"" : ""98722"",
+    ""date_time"" : ""2022-03-16T15:50-06:00"",
+ 	""vaccination_type"" : ""PharmaA"",
+ 	""open_spots"" : ""4"",
+ 	""comment"" : ""These are the last batches of PharmaA""
+}";
+
+var doc = JsonDocument.Parse(jsonData);
+
+var fuzz = new SimpleFuzz(threshold: 7);
+
+for (int i = 0; i < 5; i++)
+{
+    byte[] fuzzedJsonResult = fuzz.Fuzz(doc);
+    if (fuzzedJsonResult.Length > 0)
+    {
+        string res = System.Text.Encoding.UTF8.GetString(fuzzedJsonResult);
+        Console.WriteLine(res);
+    } else
+    {
+        Console.WriteLine("Not Fuzzed");
+    }
+}
+/*
+byte[] fuzzedResult = fuzz.Fuzz(data);
+if (fuzzedResult.Length > 0) {
     string res = System.Text.Encoding.UTF8.GetString(fuzzedResult);
     Console.WriteLine(res);
 }
+*/
 
 public class SimpleFuzz
 {
-    public SimpleFuzz(byte[] input, int threshold=5) {
-        _input = input;
+    public SimpleFuzz(int threshold=5, int? seed = null) {
+        _rnd = seed is null ? new Random() : new Random((int)seed);
         _threshold = threshold;
     }
 
-    public SimpleFuzz(string input, int threshold = 5) {
-        _input = System.Text.Encoding.UTF8.GetBytes(input);
-        _threshold = threshold;
+    private readonly Random _rnd;
+    private readonly int?   _threshold;
+
+    public byte[] Fuzz(JsonDocument doc)
+    {
+        byte[] fuzzResult = new byte[]{ };
+        using var stream = new MemoryStream();
+        using (var writer = new Utf8JsonWriter(stream)) {
+            writer.WriteStartObject();
+            foreach (var elem in doc.RootElement.EnumerateObject())
+            {
+                writer.WritePropertyName(elem.Name);
+                string f = elem.Value.ToString();
+                byte[] fuzzed = Fuzz(f);
+                if (fuzzed.Length > 0)
+                {
+                    writer.WriteStringValue(System.Text.Encoding.UTF8.GetString(fuzzed));
+                } else
+                {
+                    writer.WriteStringValue(elem.Value.GetRawText().ToString().Trim('"'));
+                }
+            }
+            writer.WriteEndObject();
+            writer.Flush();
+
+            fuzzResult = stream.GetBuffer();
+        }
+
+        return fuzzResult;
     }
 
-    private readonly byte[]? _input;
-    private readonly int ? _threshold;
+    public byte[] Fuzz(string input) {
+        return Fuzz(System.Text.Encoding.UTF8.GetBytes(input));
+    }
+        
+    public byte[] Fuzz(byte[] input) {
 
-    public byte[] Fuzz(int? seed=null) {
-        var rnd = seed is null ? new Random() : new Random((int)seed);
+        if (input.Length == 0) return new byte[] { };
+        if (_rnd.Next(0, 100) > _threshold) return new byte[] { };
 
-        if (_input is null) return null;
-        if (rnd.Next(0, 100) > _threshold) return null;
+        var data = new Span<byte>(input);
 
-        var input = new Span<byte>(_input);
-
-        var mutationCount = rnd.Next(1, 5);
+        var mutationCount = _rnd.Next(1, 5);
         for (int i = 0; i < mutationCount; i++) {
-            var whichMutation = rnd.Next(0, 7);
 
-            int lo = rnd.Next(0, input.Length);
-            int range = rnd.Next(1, input.Length / 10);
+            if (input.Length == 0) break;
+
+            var whichMutation = _rnd.Next(0, 7);
+
+            int lo = _rnd.Next(0, input.Length);
+            int range = _rnd.Next(1, 1+ input.Length / 10);
             if (lo + range >= input.Length) range = input.Length - lo;
 
             switch (whichMutation)
@@ -51,12 +106,12 @@ public class SimpleFuzz
                     break;
 
                 case 2: // set one char to a random value
-                    input[lo] = (byte)rnd.Next(0, 256);
+                    input[lo] = (byte)_rnd.Next(0, 256);
                     break;
 
                 case 3: // insert interesting numbers
                     byte[] interesting = new byte[] { 0, 1, 8, 7, 9, 16, 15, 17, 63, 64, 127, 128, 255 };
-                    input[lo] = interesting[rnd.Next(0,interesting.Length)];
+                    input[lo] = interesting[_rnd.Next(0,interesting.Length)];
                     break;
 
                 case 4: // swap bytes
@@ -67,16 +122,13 @@ public class SimpleFuzz
                     break;
 
                 case 5: // remove sections of the data
-                    if (rnd.Next(100) > 50)
-                        input = input[..lo];
-                    else
-                        input = input[(lo + range)..];
+                    input = _rnd.Next(100) > 50 ? input[..lo] : input[(lo + range)..];
                     break;
 
                 case 6: // add interesting pathname/filename characters
                     var fname = new string[] { "\\", "/", ":", ".."};
 
-                    int which = rnd.Next(fname.Length);
+                    int which = _rnd.Next(fname.Length);
                     for (int j = 0; j < fname[which].Length; j++)
                         if (lo+j < input.Length)
                             input[lo+j] = (byte)fname[which][j];
